@@ -134,28 +134,78 @@ exports.getAllReservations = getAllReservations;
  * @return {Promise<[{}]>}  A promise to the properties.
  */
 
- const getAllProperties = (options, limit = 10) => {
-  return pool
-    .query(`SELECT * FROM properties LIMIT $1`, [limit])
-    .then((result) => {
-      console.log(result.rows);
-      return result.rows;
-    })
-    .catch((err) => {
-      console.log(err.message);
-    });
-};
-exports.getAllProperties = getAllProperties;
-// ======== OLD VERSION WITH JSON ==================
-// const getAllProperties = function(options, limit = 10) {
-//   const limitedProperties = {};
-//   for (let i = 1; i <= limit; i++) {
-//     limitedProperties[i] = properties[i];
-//   }
-//   return Promise.resolve(limitedProperties);
-// }
-// exports.getAllProperties = getAllProperties;
+ const getAllProperties = function (options, limit = 10) {
+  // Setup an array to hold any parameters that may be available
+  const queryParams = [];
+  // Start the query with all information that comes before the WHERE clause.
+  let queryString = `
+  SELECT properties.*, avg(property_reviews.rating) as average_rating
+  FROM properties
+  JOIN property_reviews ON properties.id = property_id
+  `;
 
+  // Check if a city has been passed in as an option.
+  // Add the city to the params array and create a WHERE clause for the city.
+  if (options.city || options.owner_id || options.minimum_price_per_night || options.maximum_price_per_night) {
+    queryString += `WHERE`;
+  }
+
+  if (options.city) {
+    if (queryParams.length !== 0) queryString += `AND`;
+
+    // The % syntax for the LIKE clause must be part of the parameter, not the query.
+    queryParams.push(`%${options.city}%`);
+    // We can use the length of the array to dynamically get the $n
+    // placeholder number. Since this is the first parameter, it will be $1.
+
+    queryString += ` city LIKE $${queryParams.length} `;
+  }
+
+  if (options.owner_id) {
+    if (queryParams.length !== 0) queryString += `AND`;
+    queryParams.push(`${options.owner_id}`);
+    queryString += ` owner_id = $${queryParams.length} `;
+  }
+
+  if (options.minimum_price_per_night) {
+    if (queryParams.length !== 0) queryString += `AND`;
+    queryParams.push(`${100 * options.minimum_price_per_night}`);
+    queryString += ` cost_per_night >= $${queryParams.length} `;
+  }
+
+  if (options.maximum_price_per_night) {
+    if (queryParams.length !== 0) queryString += `AND`;
+    queryParams.push(`${100 * options.maximum_price_per_night}`);
+    queryString += ` cost_per_night <= $${queryParams.length} `;
+  }
+
+  // Add any query that comes after the WHERE clause.
+
+
+
+  queryString += `
+  GROUP BY properties.id`;
+  if (options.minimum_rating) {
+    queryParams.push(`${options.minimum_rating}`);
+    queryString += ` HAVING avg(property_reviews.rating) >= $${queryParams.length} `;
+  }
+
+  queryParams.push(limit);
+  queryString += `
+  ORDER BY cost_per_night
+  LIMIT $${queryParams.length};
+  `;
+
+
+
+  // Console log everything just to make sure we've done it right.
+  console.log(queryString, queryParams);
+
+  // Run the query.
+  return pool.query(queryString, queryParams).then((res) => res.rows);
+};
+
+exports.getAllProperties = getAllProperties;
 
 /**
  * Add a property to the database
